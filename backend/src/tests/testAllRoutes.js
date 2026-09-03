@@ -1,6 +1,7 @@
 const assert = require('assert');
 const { EventEmitter } = require('events');
 const app = require('../server');
+const seed = require('../seeds/seedData');
 
 function makeRequest(method, url, headers = {}, body = null) {
   return new Promise((resolve) => {
@@ -54,13 +55,27 @@ function makeRequest(method, url, headers = {}, body = null) {
 async function runRouteVerification() {
   console.log('🧪 Verifying All Routes (No 404s for any Facilities or Events Endpoint)...');
 
+  // Seed baseline data
+  await seed();
+
   // 1. Admin Login
   const loginRes = await makeRequest('POST', '/api/auth/login', {}, { email: 'admin@iiita.ac.in', password: 'password123' });
   assert.strictEqual(loginRes.status, 200, 'Admin login failed');
   const adminToken = loginRes.body.token;
 
-  // 2. Student Login
-  const studentLoginRes = await makeRequest('POST', '/api/auth/login', {}, { email: 'student.aarav@iiita.ac.in', password: 'password123' });
+  // 2. Student Signup & Login (using redesigned first-time signup)
+  const studentSignupRes = await makeRequest('POST', '/api/auth/signup', {}, {
+    role: 'student',
+    email: 'student.aarav@iiita.ac.in',
+    rollNumber: 'IIT2022001',
+    password: 'studentPassword123'
+  });
+  assert.strictEqual(studentSignupRes.status, 201, 'Student signup failed');
+
+  const studentLoginRes = await makeRequest('POST', '/api/auth/login', {}, {
+    email: 'student.aarav@iiita.ac.in',
+    password: 'studentPassword123'
+  });
   assert.strictEqual(studentLoginRes.status, 200, 'Student login failed');
   const studentToken = studentLoginRes.body.token;
 
@@ -93,7 +108,7 @@ async function runRouteVerification() {
 
   // 4. Test /api/facilities (Direct mount)
   console.log('\n--- Test: /api/facilities CRUD ---');
-  const getFac = await makeRequest('GET', '/api/facilities');
+  const getFac = await makeRequest('GET', '/api/facilities', { Authorization: `Bearer ${adminToken}` });
   assert.strictEqual(getFac.status, 200, 'GET /api/facilities must return 200');
   console.log(`✅ GET /api/facilities -> 200 OK (${getFac.body.length} records)`);
 
@@ -141,7 +156,7 @@ async function runRouteVerification() {
 
   // 6. Test /api/events (Direct mount)
   console.log('\n--- Test: /api/events CRUD ---');
-  const getEv = await makeRequest('GET', '/api/events');
+  const getEv = await makeRequest('GET', '/api/events', { Authorization: `Bearer ${adminToken}` });
   assert.strictEqual(getEv.status, 200, 'GET /api/events must return 200');
   console.log(`✅ GET /api/events -> 200 OK (${getEv.body.length} records)`);
 

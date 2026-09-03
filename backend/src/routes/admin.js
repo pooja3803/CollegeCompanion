@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcryptjs');
 const db = require('../config/database');
 const { verifyToken, requireRole } = require('../middleware/auth');
 
@@ -36,7 +35,7 @@ router.get('/stats', (req, res) => {
 router.get('/students', (req, res) => {
   const students = db.prepare(`
     SELECT s.id, s.roll_number, s.branch, s.branch_code, s.year, s.section,
-           u.id AS user_id, u.name, u.email, u.avatar_url, u.created_at
+           u.id AS user_id, u.name, u.email, u.avatar_url, u.is_registered, u.created_at
     FROM students s
     JOIN users u ON s.user_id = u.id
     ORDER BY s.year ASC, s.branch_code ASC, s.section ASC, s.roll_number ASC
@@ -45,30 +44,32 @@ router.get('/students', (req, res) => {
   res.json(students);
 });
 
-// POST /api/admin/students (Add new student)
+// POST /api/admin/students (Add new student - password_hash = NULL, is_registered = 0)
 router.post('/students', (req, res) => {
-  const { name, email, password, rollNumber, branch, branchCode, year, section } = req.body;
+  const { name, email, rollNumber, branch, branchCode, year, section } = req.body;
 
   if (!name || !email || !rollNumber || !branch || !year || !section) {
     return res.status(400).json({ message: 'All required student fields must be provided' });
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.trim().toLowerCase());
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedRoll = rollNumber.trim().toUpperCase();
+
+  const existing = db.prepare('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?').get(normalizedEmail);
   if (existing) {
     return res.status(400).json({ message: 'User with this email already exists' });
   }
 
-  const existingRoll = db.prepare('SELECT id FROM students WHERE roll_number = ?').get(rollNumber.trim().toUpperCase());
+  const existingRoll = db.prepare('SELECT id FROM students WHERE UPPER(TRIM(roll_number)) = ?').get(normalizedRoll);
   if (existingRoll) {
     return res.status(400).json({ message: 'Student with this roll number already exists' });
   }
 
-  const passwordHash = bcrypt.hashSync(password || 'password123', 10);
-  const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${rollNumber.trim().toUpperCase()}`;
+  const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${normalizedRoll}`;
 
   const insertUser = db.prepare(`
-    INSERT INTO users (name, email, password_hash, role, avatar_url)
-    VALUES (?, ?, ?, 'student', ?)
+    INSERT INTO users (name, email, password_hash, role, avatar_url, is_registered)
+    VALUES (?, ?, NULL, 'student', ?, 0)
   `);
 
   const insertStudent = db.prepare(`
@@ -77,12 +78,12 @@ router.post('/students', (req, res) => {
   `);
 
   const tx = db.transaction(() => {
-    const userResult = insertUser.run(name.trim(), email.trim().toLowerCase(), passwordHash, avatarUrl);
+    const userResult = insertUser.run(name.trim(), normalizedEmail, avatarUrl);
     const userId = userResult.lastInsertRowid;
     const resolvedBranchCode = branchCode ? branchCode.trim().toUpperCase() : branch.trim().toUpperCase();
     insertStudent.run(
       userId,
-      rollNumber.trim().toUpperCase(),
+      normalizedRoll,
       branch.trim(),
       resolvedBranchCode,
       parseInt(year, 10),
@@ -93,7 +94,7 @@ router.post('/students', (req, res) => {
 
   try {
     const newUserId = tx();
-    res.status(201).json({ message: 'Student created successfully', userId: newUserId });
+    res.status(201).json({ message: 'Student created successfully (pending first-time signup)', userId: newUserId });
   } catch (err) {
     res.status(500).json({ message: 'Failed to create student: ' + err.message });
   }
@@ -120,7 +121,7 @@ router.delete('/students/:id', (req, res) => {
 router.get('/faculty', (req, res) => {
   const facultyList = db.prepare(`
     SELECT f.id, f.faculty_code, f.department, f.designation, f.office_room,
-           u.id AS user_id, u.name, u.email, u.avatar_url, u.created_at
+           u.id AS user_id, u.name, u.email, u.avatar_url, u.is_registered, u.created_at
     FROM faculty f
     JOIN users u ON f.user_id = u.id
     ORDER BY u.name ASC
@@ -138,30 +139,32 @@ router.get('/faculty', (req, res) => {
   res.json(detailed);
 });
 
-// POST /api/admin/faculty (Add new faculty)
+// POST /api/admin/faculty (Add new faculty - password_hash = NULL, is_registered = 0)
 router.post('/faculty', (req, res) => {
-  const { name, email, password, facultyCode, department, designation, officeRoom } = req.body;
+  const { name, email, facultyCode, department, designation, officeRoom } = req.body;
 
   if (!name || !email || !facultyCode || !department) {
     return res.status(400).json({ message: 'Name, email, faculty code, and department are required' });
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.trim().toLowerCase());
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedCode = facultyCode.trim().toUpperCase();
+
+  const existing = db.prepare('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?').get(normalizedEmail);
   if (existing) {
     return res.status(400).json({ message: 'User with this email already exists' });
   }
 
-  const existingCode = db.prepare('SELECT id FROM faculty WHERE faculty_code = ?').get(facultyCode.trim().toUpperCase());
+  const existingCode = db.prepare('SELECT id FROM faculty WHERE UPPER(TRIM(faculty_code)) = ?').get(normalizedCode);
   if (existingCode) {
     return res.status(400).json({ message: 'Faculty code already exists' });
   }
 
-  const passwordHash = bcrypt.hashSync(password || 'password123', 10);
-  const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${facultyCode.trim().toUpperCase()}`;
+  const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${normalizedCode}`;
 
   const insertUser = db.prepare(`
-    INSERT INTO users (name, email, password_hash, role, avatar_url)
-    VALUES (?, ?, ?, 'faculty', ?)
+    INSERT INTO users (name, email, password_hash, role, avatar_url, is_registered)
+    VALUES (?, ?, NULL, 'faculty', ?, 0)
   `);
 
   const insertFaculty = db.prepare(`
@@ -170,11 +173,11 @@ router.post('/faculty', (req, res) => {
   `);
 
   const tx = db.transaction(() => {
-    const userResult = insertUser.run(name.trim(), email.trim().toLowerCase(), passwordHash, avatarUrl);
+    const userResult = insertUser.run(name.trim(), normalizedEmail, avatarUrl);
     const userId = userResult.lastInsertRowid;
     insertFaculty.run(
       userId,
-      facultyCode.trim().toUpperCase(),
+      normalizedCode,
       department.trim(),
       designation ? designation.trim() : 'Assistant Professor',
       officeRoom ? officeRoom.trim() : 'CC3-301'
@@ -184,7 +187,7 @@ router.post('/faculty', (req, res) => {
 
   try {
     const newUserId = tx();
-    res.status(201).json({ message: 'Faculty created successfully', userId: newUserId });
+    res.status(201).json({ message: 'Faculty created successfully (pending first-time signup)', userId: newUserId });
   } catch (err) {
     res.status(500).json({ message: 'Failed to create faculty: ' + err.message });
   }
@@ -401,7 +404,6 @@ router.delete('/notices/:id', (req, res) => {
 // GET /api/admin/events
 router.get('/events', (req, res) => {
   const events = db.prepare('SELECT * FROM events ORDER BY date ASC').all();
-  // Provide field aliases for full frontend compatibility
   const normalized = events.map(e => ({
     ...e,
     name: e.title,
@@ -506,12 +508,13 @@ router.delete('/events/:id', (req, res) => {
   res.json({ message: 'Event deleted successfully' });
 });
 
+// ==========================================
 // 7. CAMPUS FACILITIES MANAGEMENT
+// ==========================================
 
 // GET /api/admin/facilities
 router.get('/facilities', (req, res) => {
   const facilities = db.prepare('SELECT * FROM facilities ORDER BY category ASC, name ASC').all();
-  // Provide field aliases for full frontend compatibility
   const normalized = facilities.map(f => ({
     ...f,
     title: f.name,

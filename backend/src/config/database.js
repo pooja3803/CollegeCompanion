@@ -1,6 +1,5 @@
 const Database = require('better-sqlite3');
 const path = require('path');
-const bcrypt = require('bcryptjs');
 
 const dbPath = path.resolve(__dirname, '../../database.sqlite');
 const db = new Database(dbPath);
@@ -8,17 +7,67 @@ const db = new Database(dbPath);
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
 
+// Safe migration function to adapt existing database without data loss
+function migrateDatabase() {
+  const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
+  if (tableCheck) {
+    const columns = db.prepare("PRAGMA table_info(users)").all();
+    const hasIsRegistered = columns.some(col => col.name === 'is_registered');
+    const pwdCol = columns.find(col => col.name === 'password_hash');
+    const pwdIsNotNull = pwdCol && pwdCol.notnull === 1;
+
+    if (!hasIsRegistered || pwdIsNotNull) {
+      console.log('🔄 Migrating users table to support nullable password_hash and is_registered...');
+      db.pragma('foreign_keys = OFF');
+      db.transaction(() => {
+        db.exec(`
+          CREATE TABLE users_temp (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT,
+            role TEXT CHECK(role IN ('student', 'faculty', 'admin')) NOT NULL,
+            avatar_url TEXT,
+            is_registered INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+
+          INSERT INTO users_temp (id, name, email, password_hash, role, avatar_url, is_registered, created_at)
+          SELECT 
+            id, 
+            name, 
+            email, 
+            password_hash, 
+            role, 
+            avatar_url, 
+            ${hasIsRegistered ? 'COALESCE(is_registered, 0)' : '0'}, 
+            created_at 
+          FROM users;
+
+          DROP TABLE users;
+          ALTER TABLE users_temp RENAME TO users;
+        `);
+      })();
+      db.pragma('foreign_keys = ON');
+      console.log('✅ Users table migration completed successfully.');
+    }
+  }
+}
+
 // Initialize tables
 function initializeDatabase() {
+  migrateDatabase();
+
   const schema = `
     -- Users table (All roles: student, faculty, admin)
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
+      password_hash TEXT,
       role TEXT CHECK(role IN ('student', 'faculty', 'admin')) NOT NULL,
       avatar_url TEXT,
+      is_registered INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -174,19 +223,6 @@ function initializeDatabase() {
   `;
 
   db.exec(schema);
-
-  // Auto-seed baseline data if empty so database is always fully populated
-  const usersCount = db.prepare('SELECT count(*) as c FROM users').get().c;
-  const eventsCount = db.prepare('SELECT count(*) as c FROM events').get().c;
-  const facilitiesCount = db.prepare('SELECT count(*) as c FROM facilities').get().c;
-
-  if (usersCount === 0 || eventsCount === 0 || facilitiesCount === 0) {
-    try {
-      require('../seeds/seedData');
-    } catch (e) {
-      console.log('Seed initialization check:', e.message);
-    }
-  }
 }
 
 initializeDatabase();

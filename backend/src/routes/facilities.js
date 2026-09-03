@@ -147,6 +147,7 @@ router.post(
 
       res.status(201).json({
         message: 'Facility created successfully',
+        facilityId: result.lastInsertRowid,
         facility: formatFacility(createdFacility)
       });
 

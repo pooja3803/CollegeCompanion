@@ -153,6 +153,7 @@ router.post(
 
       res.status(201).json({
         message: 'Event created successfully',
+        eventId: result.lastInsertRowid,
         event: formatEvent(createdEvent)
       });
 

@@ -94,9 +94,15 @@ async function runEndToEndVerification() {
   assert.ok(foundInAdminList, 'Facility must be in Admin list');
   console.log(`✅ Admin facility list contains newly added "${foundInAdminList.name}"`);
 
-  // 4. Student logs in and queries Explorer
+  // 4. Student signs up and queries Explorer
   console.log('\n--- Step 4: Student Logs In & Queries Single Source of Truth Explorer ---');
-  const studentLoginRes = await makeRequest('POST', '/api/auth/login', { 'Content-Type': 'application/json' }, { email: 'student.aarav@iiita.ac.in', password: 'password123' });
+  await makeRequest('POST', '/api/auth/signup', {}, {
+    role: 'student',
+    email: 'student.aarav@iiita.ac.in',
+    rollNumber: 'IIT2022001',
+    password: 'studentPassword123'
+  });
+  const studentLoginRes = await makeRequest('POST', '/api/auth/login', { 'Content-Type': 'application/json' }, { email: 'student.aarav@iiita.ac.in', password: 'studentPassword123' });
   const studentToken = studentLoginRes.body.token;
   assert.ok(studentToken, 'Student token must be returned');
 
@@ -106,9 +112,15 @@ async function runEndToEndVerification() {
   assert.ok(foundInStudent, 'Student Explorer must see the DB-backed facility');
   console.log(`✅ Student Explorer retrieved the exact DB-backed facility: "${foundInStudent.name}"`);
 
-  // 5. Faculty logs in and queries Explorer
+  // 5. Faculty signs up and queries Explorer
   console.log('\n--- Step 5: Faculty Logs In & Queries Single Source of Truth Explorer ---');
-  const facultyLoginRes = await makeRequest('POST', '/api/auth/login', { 'Content-Type': 'application/json' }, { email: 'faculty.manish@iiita.ac.in', password: 'password123' });
+  await makeRequest('POST', '/api/auth/signup', {}, {
+    role: 'faculty',
+    email: 'faculty.manish@iiita.ac.in',
+    facultyCode: 'FAC-IT-01',
+    password: 'facultyPassword123'
+  });
+  const facultyLoginRes = await makeRequest('POST', '/api/auth/login', { 'Content-Type': 'application/json' }, { email: 'faculty.manish@iiita.ac.in', password: 'facultyPassword123' });
   const facultyToken = facultyLoginRes.body.token;
   assert.ok(facultyToken, 'Faculty token must be returned');
 

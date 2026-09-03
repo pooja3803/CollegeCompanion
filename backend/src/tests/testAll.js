@@ -8,7 +8,8 @@ console.log('🧪 Running Final Comprehensive Verification Test Suite...');
 
 function runTests() {
   // 1. Seed database with realistic data
-  require('../seeds/seedData');
+  const seed = require('../seeds/seedData');
+  if (typeof seed === 'function') seed();
 
   // ========================================================
   // TEST 1: INSTITUTIONAL LOGIN & USER IDENTITY
